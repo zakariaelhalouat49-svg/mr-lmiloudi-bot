@@ -1,274 +1,581 @@
-const {
-    Client,
-    GatewayIntentBits,
-    EmbedBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle
-} = require('discord.js');
+require("dotenv").config();
 
-require('dotenv').config();
+const {
+  Client,
+  GatewayIntentBits,
+  AuditLogEvent,
+  EmbedBuilder,
+  PermissionsBitField,
+  ChannelType,
+} = require("discord.js");
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers
-    ]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
 });
 
-// ===============================
-// IDS
-// ===============================
+// =========================
+// LOG CHANNELS
+// =========================
 
-const VERIFICATION_CHANNEL_ID = '1536147998713847961';
+const LOG_CATEGORY = "📋・LOGS";
 
-const UNVERIFIED_ROLE_ID = '1536145218427166720';
+const LOG_CHANNELS = {
+  memberJoin: "👤・member-join",
+  memberLeave: "🚪・member-leave",
+  memberUpdate: "📝・member-update",
 
-const VERIFIED_MALE_ROLE_ID = '1535073145487233187';
+  messageDelete: "💬・message-delete",
+  messageEdit: "✏️・message-edit",
 
-const VERIFIED_FEMALE_ROLE_ID = '1535073253561737316';
+  moderation: "🛡️・moderation",
+  ban: "🔨・ban-logs",
+  kick: "👢・kick-logs",
+  timeout: "⏱️・timeout-logs",
+  warn: "⚠️・warn-logs",
 
+  voice: "🔊・voice-logs",
+  voiceMember: "🎙️・voice-member",
+  voiceMove: "↔️・voice-move",
+  voiceDisconnect: "❌・voice-disconnect",
 
-// ===============================
-// BOT READY
-// ===============================
+  role: "🎭・role-logs",
+  channel: "📁・channel-logs",
+  category: "🗂️・category-logs",
 
-client.once('ready', async () => {
+  invite: "🔗・invite-logs",
+  bot: "🤖・bot-logs",
+  server: "⚙️・server-logs",
+};
 
-    console.log(`✅ ${client.user.tag} is online!`);
+// =========================
+// READY
+// =========================
 
+client.once("ready", async () => {
+  console.log(`✅ ${client.user.tag} is online!`);
+
+  for (const guild of client.guilds.cache.values()) {
     try {
+      await setupLogs(guild);
+      console.log(`📋 Logs ready in: ${guild.name}`);
+    } catch (error) {
+      console.error(`❌ Could not setup logs in ${guild.name}:`, error);
+    }
+  }
+});
 
-        const channel = await client.channels.fetch(
-            VERIFICATION_CHANNEL_ID
-        );
+// =========================
+// CREATE LOG SYSTEM
+// =========================
 
-        if (!channel) {
-            console.log('❌ Verification channel not found.');
-            return;
+async function setupLogs(guild) {
+  let category = guild.channels.cache.find(
+    (channel) =>
+      channel.type === ChannelType.GuildCategory &&
+      channel.name === LOG_CATEGORY
+  );
+
+  if (!category) {
+    category = await guild.channels.create({
+      name: LOG_CATEGORY,
+      type: ChannelType.GuildCategory,
+    });
+  }
+
+  for (const channelName of Object.values(LOG_CHANNELS)) {
+    let channel = guild.channels.cache.find(
+      (ch) =>
+        ch.type === ChannelType.GuildText &&
+        ch.name === channelName &&
+        ch.parentId === category.id
+    );
+
+    if (!channel) {
+      await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone.id,
+            deny: [PermissionsBitField.Flags.ViewChannel],
+          },
+        ],
+      });
+    }
+  }
+}
+
+// =========================
+// GET LOG CHANNEL
+// =========================
+
+function getLogChannel(guild, name) {
+  const channelName = LOG_CHANNELS[name];
+
+  return guild.channels.cache.find(
+    (channel) =>
+      channel.type === ChannelType.GuildText &&
+      channel.name === channelName
+  );
+}
+
+// =========================
+// SEND LOG
+// =========================
+
+async function sendLog(guild, channelName, embed) {
+  const channel = getLogChannel(guild, channelName);
+
+  if (!channel) return;
+
+  try {
+    await channel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error(`❌ Could not send ${channelName} log:`, error);
+  }
+}
+
+// =========================
+// MEMBER JOIN
+// =========================
+
+client.on("guildMemberAdd", async (member) => {
+  const embed = new EmbedBuilder()
+    .setTitle("👤 Member Joined")
+    .addFields(
+      {
+        name: "User",
+        value: `${member.user.tag}`,
+        inline: true,
+      },
+      {
+        name: "ID",
+        value: member.id,
+        inline: true,
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(member.guild, "memberJoin", embed);
+});
+
+// =========================
+// MEMBER LEAVE
+// =========================
+
+client.on("guildMemberRemove", async (member) => {
+  const embed = new EmbedBuilder()
+    .setTitle("🚪 Member Left")
+    .addFields(
+      {
+        name: "User",
+        value: `${member.user.tag}`,
+        inline: true,
+      },
+      {
+        name: "ID",
+        value: member.id,
+        inline: true,
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(member.guild, "memberLeave", embed);
+});
+
+// =========================
+// MEMBER UPDATE
+// =========================
+
+client.on("guildMemberUpdate", async (oldMember, newMember) => {
+  const changes = [];
+
+  if (oldMember.nickname !== newMember.nickname) {
+    changes.push(
+      `**Nickname:** ${oldMember.nickname || "None"} → ${
+        newMember.nickname || "None"
+      }`
+    );
+  }
+
+  const oldRoles = oldMember.roles.cache;
+  const newRoles = newMember.roles.cache;
+
+  const addedRoles = newRoles.filter((role) => !oldRoles.has(role.id));
+  const removedRoles = oldRoles.filter((role) => !newRoles.has(role.id));
+
+  if (addedRoles.size > 0) {
+    changes.push(
+      `**Role Added:** ${addedRoles.map((r) => r.name).join(", ")}`
+    );
+  }
+
+  if (removedRoles.size > 0) {
+    changes.push(
+      `**Role Removed:** ${removedRoles.map((r) => r.name).join(", ")}`
+    );
+  }
+
+  if (changes.length === 0) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("📝 Member Updated")
+    .setDescription(changes.join("\n"))
+    .addFields({
+      name: "User",
+      value: `${newMember.user.tag}\n${newMember.id}`,
+    })
+    .setTimestamp();
+
+  await sendLog(newMember.guild, "memberUpdate", embed);
+});
+
+// =========================
+// MESSAGE DELETE
+// =========================
+
+client.on("messageDelete", async (message) => {
+  if (!message.guild || message.author?.bot) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("💬 Message Deleted")
+    .addFields(
+      {
+        name: "Author",
+        value: `${message.author?.tag || "Unknown"}\n${
+          message.author?.id || "Unknown"
+        }`,
+      },
+      {
+        name: "Channel",
+        value: `<#${message.channel.id}>`,
+      },
+      {
+        name: "Content",
+        value: message.content
+          ? message.content.slice(0, 1024)
+          : "No text content",
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(message.guild, "messageDelete", embed);
+});
+
+// =========================
+// MESSAGE EDIT
+// =========================
+
+client.on("messageUpdate", async (oldMessage, newMessage) => {
+  if (!oldMessage.guild) return;
+  if (oldMessage.author?.bot) return;
+  if (oldMessage.content === newMessage.content) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("✏️ Message Edited")
+    .addFields(
+      {
+        name: "Author",
+        value: `${oldMessage.author?.tag || "Unknown"}\n${
+          oldMessage.author?.id || "Unknown"
+        }`,
+      },
+      {
+        name: "Channel",
+        value: `<#${oldMessage.channel.id}>`,
+      },
+      {
+        name: "Before",
+        value: oldMessage.content
+          ? oldMessage.content.slice(0, 1024)
+          : "Empty",
+      },
+      {
+        name: "After",
+        value: newMessage.content
+          ? newMessage.content.slice(0, 1024)
+          : "Empty",
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(oldMessage.guild, "messageEdit", embed);
+});
+
+// =========================
+// VOICE SYSTEM
+// =========================
+
+client.on("voiceStateUpdate", async (oldState, newState) => {
+  const guild = newState.guild || oldState.guild;
+  const member = newState.member || oldState.member;
+
+  if (!member) return;
+
+  // JOIN
+  if (!oldState.channelId && newState.channelId) {
+    const embed = new EmbedBuilder()
+      .setTitle("🎙️ Voice Join")
+      .addFields(
+        {
+          name: "User",
+          value: `${member.user.tag}\n${member.id}`,
+        },
+        {
+          name: "Channel",
+          value: `${newState.channel.name}`,
         }
+      )
+      .setTimestamp();
 
-        const embed = new EmbedBuilder()
-            .setTitle('🔐 Verification Required')
-            .setDescription(
-                'Welcome to **Night Shift**!\n\n' +
-                'To access the server, please verify yourself:\n\n' +
-                '👨 **Verify Male**\n' +
-                '👩 **Verify Female**\n\n' +
-                'Click the button that corresponds to you.\n\n' +
-                '✅ Your **Unverified** role will be removed automatically.'
-            )
-            .setFooter({
-                text: 'Night Shift • Verification System'
-            });
+    await sendLog(guild, "voiceMember", embed);
+    return;
+  }
 
-        const buttons = new ActionRowBuilder()
-            .addComponents(
+  // LEAVE
+  if (oldState.channelId && !newState.channelId) {
+    const embed = new EmbedBuilder()
+      .setTitle("🎙️ Voice Leave")
+      .addFields(
+        {
+          name: "User",
+          value: `${member.user.tag}\n${member.id}`,
+        },
+        {
+          name: "Channel",
+          value: `${oldState.channel.name}`,
+        }
+      )
+      .setTimestamp();
 
-                new ButtonBuilder()
-                    .setCustomId('verify_male')
-                    .setLabel('Verify Male')
-                    .setEmoji('👨')
-                    .setStyle(ButtonStyle.Primary),
+    await sendLog(guild, "voiceMember", embed);
 
-                new ButtonBuilder()
-                    .setCustomId('verify_female')
-                    .setLabel('Verify Female')
-                    .setEmoji('👩')
-                    .setStyle(ButtonStyle.Danger)
-
-            );
-
-        await channel.send({
-            embeds: [embed],
-            components: [buttons]
+    // Check audit log for disconnect
+    setTimeout(async () => {
+      try {
+        const logs = await guild.fetchAuditLogs({
+          type: AuditLogEvent.MemberDisconnect,
+          limit: 5,
         });
 
-        console.log('✅ Verification message sent.');
-
-    } catch (error) {
-
-        console.error(
-            '❌ Could not send verification message:',
-            error
+        const entry = logs.entries.find(
+          (entry) =>
+            entry.target?.id === member.id &&
+            Date.now() - entry.createdTimestamp < 5000
         );
 
-    }
+        if (!entry) return;
 
-});
+        const executor = entry.executor;
 
-
-// ===============================
-// NEW MEMBER
-// ===============================
-
-client.on('guildMemberAdd', async member => {
-
-    try {
-
-        const role = member.guild.roles.cache.get(
-            UNVERIFIED_ROLE_ID
-        );
-
-        if (!role) {
-            console.log('❌ Unverified role not found.');
-            return;
-        }
-
-        await member.roles.add(role);
-
-        console.log(
-            `🔒 ${member.user.tag} → Unverified`
-        );
-
-    } catch (error) {
-
-        console.error(
-            '❌ Auto role error:',
-            error
-        );
-
-    }
-
-});
-
-
-// ===============================
-// VERIFICATION BUTTONS
-// ===============================
-
-client.on('interactionCreate', async interaction => {
-
-    if (!interaction.isButton()) return;
-
-    if (
-        interaction.customId !== 'verify_male' &&
-        interaction.customId !== 'verify_female'
-    ) {
-        return;
-    }
-
-    try {
-
-        const member = interaction.member;
-
-        const unverifiedRole =
-            interaction.guild.roles.cache.get(
-                UNVERIFIED_ROLE_ID
-            );
-
-        const maleRole =
-            interaction.guild.roles.cache.get(
-                VERIFIED_MALE_ROLE_ID
-            );
-
-        const femaleRole =
-            interaction.guild.roles.cache.get(
-                VERIFIED_FEMALE_ROLE_ID
-            );
-
-        if (
-            !unverifiedRole ||
-            !maleRole ||
-            !femaleRole
-        ) {
-
-            return interaction.reply({
-                content: '❌ Verification roles not found.',
-                ephemeral: true
-            });
-
-        }
-
-        if (
-            interaction.customId === 'verify_male'
-        ) {
-
-            if (
-                member.roles.cache.has(
-                    VERIFIED_FEMALE_ROLE_ID
-                )
-            ) {
-
-                await member.roles.remove(
-                    femaleRole
-                );
-
+        const disconnectEmbed = new EmbedBuilder()
+          .setTitle("❌ Voice Disconnect")
+          .addFields(
+            {
+              name: "User",
+              value: `${member.user.tag}\n${member.id}`,
+            },
+            {
+              name: "Channel",
+              value: `${oldState.channel.name}`,
+            },
+            {
+              name: "Disconnected By",
+              value: `${executor?.tag || "Unknown"}\n${
+                executor?.id || "Unknown"
+              }`,
             }
+          )
+          .setTimestamp();
 
-            await member.roles.remove(
-                unverifiedRole
-            );
+        await sendLog(guild, "voiceDisconnect", disconnectEmbed);
+      } catch (error) {
+        console.error("❌ Disconnect audit log error:", error);
+      }
+    }, 1000);
 
-            await member.roles.add(
-                maleRole
-            );
+    return;
+  }
 
-            await interaction.reply({
-                content:
-                    '✅ You are now verified as **Male**!',
-                ephemeral: true
-            });
-
+  // MOVE
+  if (
+    oldState.channelId &&
+    newState.channelId &&
+    oldState.channelId !== newState.channelId
+  ) {
+    const embed = new EmbedBuilder()
+      .setTitle("↔️ Voice Move")
+      .addFields(
+        {
+          name: "User",
+          value: `${member.user.tag}\n${member.id}`,
+        },
+        {
+          name: "From",
+          value: `${oldState.channel.name}`,
+        },
+        {
+          name: "To",
+          value: `${newState.channel.name}`,
         }
+      )
+      .setTimestamp();
 
+    await sendLog(guild, "voiceMove", embed);
 
-        if (
-            interaction.customId === 'verify_female'
-        ) {
+    // Find executor
+    setTimeout(async () => {
+      try {
+        const logs = await guild.fetchAuditLogs({
+          type: AuditLogEvent.MemberMove,
+          limit: 5,
+        });
 
-            if (
-                member.roles.cache.has(
-                    VERIFIED_MALE_ROLE_ID
-                )
-            ) {
-
-                await member.roles.remove(
-                    maleRole
-                );
-
-            }
-
-            await member.roles.remove(
-                unverifiedRole
-            );
-
-            await member.roles.add(
-                femaleRole
-            );
-
-            await interaction.reply({
-                content:
-                    '✅ You are now verified as **Female**!',
-                ephemeral: true
-            });
-
-        }
-
-    } catch (error) {
-
-        console.error(
-            '❌ Verification error:',
-            error
+        const entry = logs.entries.find(
+          (entry) =>
+            entry.target?.id === member.id &&
+            Date.now() - entry.createdTimestamp < 5000
         );
 
-        if (!interaction.replied) {
+        if (!entry) return;
 
-            await interaction.reply({
-                content:
-                    '❌ Verification failed.',
-                ephemeral: true
-            });
+        const executor = entry.executor;
 
-        }
+        const executorEmbed = new EmbedBuilder()
+          .setTitle("👮 Voice Move — Action")
+          .addFields(
+            {
+              name: "User",
+              value: `${member.user.tag}\n${member.id}`,
+            },
+            {
+              name: "From",
+              value: `${oldState.channel.name}`,
+            },
+            {
+              name: "To",
+              value: `${newState.channel.name}`,
+            },
+            {
+              name: "Moved By",
+              value: `${executor?.tag || "Unknown"}\n${
+                executor?.id || "Unknown"
+              }`,
+            }
+          )
+          .setTimestamp();
 
-    }
-
+        await sendLog(guild, "voiceMove", executorEmbed);
+      } catch (error) {
+        console.error("❌ Move audit log error:", error);
+      }
+    }, 1000);
+  }
 });
 
+// =========================
+// ROLE CREATE / DELETE
+// =========================
 
-// ===============================
+client.on("roleCreate", async (role) => {
+  const embed = new EmbedBuilder()
+    .setTitle("🎭 Role Created")
+    .addFields(
+      {
+        name: "Role",
+        value: `${role.name}`,
+      },
+      {
+        name: "ID",
+        value: role.id,
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(role.guild, "role", embed);
+});
+
+client.on("roleDelete", async (role) => {
+  const embed = new EmbedBuilder()
+    .setTitle("🎭 Role Deleted")
+    .addFields(
+      {
+        name: "Role",
+        value: `${role.name}`,
+      },
+      {
+        name: "ID",
+        value: role.id,
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(role.guild, "role", embed);
+});
+
+// =========================
+// CHANNEL CREATE
+// =========================
+
+client.on("channelCreate", async (channel) => {
+  if (!channel.guild) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("📁 Channel Created")
+    .addFields(
+      {
+        name: "Channel",
+        value: `${channel.name}`,
+      },
+      {
+        name: "ID",
+        value: channel.id,
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(channel.guild, "channel", embed);
+});
+
+// =========================
+// CHANNEL DELETE
+// =========================
+
+client.on("channelDelete", async (channel) => {
+  if (!channel.guild) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("📁 Channel Deleted")
+    .addFields(
+      {
+        name: "Channel",
+        value: `${channel.name}`,
+      },
+      {
+        name: "ID",
+        value: channel.id,
+      }
+    )
+    .setTimestamp();
+
+  await sendLog(channel.guild, "channel", embed);
+});
+
+// =========================
 // LOGIN
-// ===============================
+// =========================
+
+if (!process.env.TOKEN) {
+  console.error("❌ TOKEN is missing!");
+  process.exit(1);
+}
 
 client.login(process.env.TOKEN);
