@@ -20,10 +20,6 @@ const client = new Client({
   ],
 });
 
-// =========================
-// LOG CHANNELS
-// =========================
-
 const LOG_CATEGORY = "📋・LOGS";
 
 const LOG_CHANNELS = {
@@ -40,7 +36,6 @@ const LOG_CHANNELS = {
   timeout: "⏱️・timeout-logs",
   warn: "⚠️・warn-logs",
 
-  voice: "🔊・voice-logs",
   voiceMember: "🎙️・voice-member",
   voiceMove: "↔️・voice-move",
   voiceDisconnect: "❌・voice-disconnect",
@@ -54,26 +49,18 @@ const LOG_CHANNELS = {
   server: "⚙️・server-logs",
 };
 
-// =========================
-// READY
-// =========================
-
 client.once("ready", async () => {
   console.log(`✅ ${client.user.tag} is online!`);
 
   for (const guild of client.guilds.cache.values()) {
     try {
       await setupLogs(guild);
-      console.log(`📋 Logs ready in: ${guild.name}`);
+      console.log(`✅ Logs ready: ${guild.name}`);
     } catch (error) {
-      console.error(`❌ Could not setup logs in ${guild.name}:`, error);
+      console.error(`❌ Setup error in ${guild.name}:`, error);
     }
   }
 });
-
-// =========================
-// CREATE LOG SYSTEM
-// =========================
 
 async function setupLogs(guild) {
   let category = guild.channels.cache.find(
@@ -87,17 +74,21 @@ async function setupLogs(guild) {
       name: LOG_CATEGORY,
       type: ChannelType.GuildCategory,
     });
+
+    console.log("✅ Log category created");
   }
 
   for (const channelName of Object.values(LOG_CHANNELS)) {
-    let channel = guild.channels.cache.find(
-      (ch) =>
-        ch.type === ChannelType.GuildText &&
-        ch.name === channelName &&
-        ch.parentId === category.id
+    const existing = guild.channels.cache.find(
+      (channel) =>
+        channel.type === ChannelType.GuildText &&
+        channel.name === channelName &&
+        channel.parentId === category.id
     );
 
-    if (!channel) {
+    if (existing) continue;
+
+    try {
       await guild.channels.create({
         name: channelName,
         type: ChannelType.GuildText,
@@ -109,16 +100,16 @@ async function setupLogs(guild) {
           },
         ],
       });
+
+      console.log(`✅ Created: ${channelName}`);
+    } catch (error) {
+      console.error(`❌ Failed to create ${channelName}:`, error);
     }
   }
 }
 
-// =========================
-// GET LOG CHANNEL
-// =========================
-
-function getLogChannel(guild, name) {
-  const channelName = LOG_CHANNELS[name];
+function getLogChannel(guild, type) {
+  const channelName = LOG_CHANNELS[type];
 
   return guild.channels.cache.find(
     (channel) =>
@@ -127,33 +118,29 @@ function getLogChannel(guild, name) {
   );
 }
 
-// =========================
-// SEND LOG
-// =========================
+async function sendLog(guild, type, embed) {
+  const channel = getLogChannel(guild, type);
 
-async function sendLog(guild, channelName, embed) {
-  const channel = getLogChannel(guild, channelName);
-
-  if (!channel) return;
+  if (!channel) {
+    console.log(`⚠️ Missing log channel: ${type}`);
+    return;
+  }
 
   try {
     await channel.send({ embeds: [embed] });
   } catch (error) {
-    console.error(`❌ Could not send ${channelName} log:`, error);
+    console.error(`❌ Send log error (${type}):`, error);
   }
 }
 
-// =========================
 // MEMBER JOIN
-// =========================
-
 client.on("guildMemberAdd", async (member) => {
   const embed = new EmbedBuilder()
     .setTitle("👤 Member Joined")
     .addFields(
       {
         name: "User",
-        value: `${member.user.tag}`,
+        value: member.user.tag,
         inline: true,
       },
       {
@@ -167,17 +154,14 @@ client.on("guildMemberAdd", async (member) => {
   await sendLog(member.guild, "memberJoin", embed);
 });
 
-// =========================
 // MEMBER LEAVE
-// =========================
-
 client.on("guildMemberRemove", async (member) => {
   const embed = new EmbedBuilder()
     .setTitle("🚪 Member Left")
     .addFields(
       {
         name: "User",
-        value: `${member.user.tag}`,
+        value: member.user.tag,
         inline: true,
       },
       {
@@ -191,36 +175,35 @@ client.on("guildMemberRemove", async (member) => {
   await sendLog(member.guild, "memberLeave", embed);
 });
 
-// =========================
 // MEMBER UPDATE
-// =========================
-
 client.on("guildMemberUpdate", async (oldMember, newMember) => {
   const changes = [];
 
   if (oldMember.nickname !== newMember.nickname) {
     changes.push(
-      `**Nickname:** ${oldMember.nickname || "None"} → ${
+      `Nickname: ${oldMember.nickname || "None"} → ${
         newMember.nickname || "None"
       }`
     );
   }
 
-  const oldRoles = oldMember.roles.cache;
-  const newRoles = newMember.roles.cache;
+  const addedRoles = newMember.roles.cache.filter(
+    (role) => !oldMember.roles.cache.has(role.id)
+  );
 
-  const addedRoles = newRoles.filter((role) => !oldRoles.has(role.id));
-  const removedRoles = oldRoles.filter((role) => !newRoles.has(role.id));
+  const removedRoles = oldMember.roles.cache.filter(
+    (role) => !newMember.roles.cache.has(role.id)
+  );
 
   if (addedRoles.size > 0) {
     changes.push(
-      `**Role Added:** ${addedRoles.map((r) => r.name).join(", ")}`
+      `Role Added: ${addedRoles.map((role) => role.name).join(", ")}`
     );
   }
 
   if (removedRoles.size > 0) {
     changes.push(
-      `**Role Removed:** ${removedRoles.map((r) => r.name).join(", ")}`
+      `Role Removed: ${removedRoles.map((role) => role.name).join(", ")}`
     );
   }
 
@@ -238,10 +221,7 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
   await sendLog(newMember.guild, "memberUpdate", embed);
 });
 
-// =========================
 // MESSAGE DELETE
-// =========================
-
 client.on("messageDelete", async (message) => {
   if (!message.guild || message.author?.bot) return;
 
@@ -249,7 +229,7 @@ client.on("messageDelete", async (message) => {
     .setTitle("💬 Message Deleted")
     .addFields(
       {
-        name: "Author",
+        name: "User",
         value: `${message.author?.tag || "Unknown"}\n${
           message.author?.id || "Unknown"
         }`,
@@ -259,10 +239,10 @@ client.on("messageDelete", async (message) => {
         value: `<#${message.channel.id}>`,
       },
       {
-        name: "Content",
+        name: "Message",
         value: message.content
           ? message.content.slice(0, 1024)
-          : "No text content",
+          : "No content",
       }
     )
     .setTimestamp();
@@ -270,10 +250,7 @@ client.on("messageDelete", async (message) => {
   await sendLog(message.guild, "messageDelete", embed);
 });
 
-// =========================
 // MESSAGE EDIT
-// =========================
-
 client.on("messageUpdate", async (oldMessage, newMessage) => {
   if (!oldMessage.guild) return;
   if (oldMessage.author?.bot) return;
@@ -283,7 +260,7 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
     .setTitle("✏️ Message Edited")
     .addFields(
       {
-        name: "Author",
+        name: "User",
         value: `${oldMessage.author?.tag || "Unknown"}\n${
           oldMessage.author?.id || "Unknown"
         }`,
@@ -294,15 +271,11 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
       },
       {
         name: "Before",
-        value: oldMessage.content
-          ? oldMessage.content.slice(0, 1024)
-          : "Empty",
+        value: oldMessage.content || "Empty",
       },
       {
         name: "After",
-        value: newMessage.content
-          ? newMessage.content.slice(0, 1024)
-          : "Empty",
+        value: newMessage.content || "Empty",
       }
     )
     .setTimestamp();
@@ -310,10 +283,7 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
   await sendLog(oldMessage.guild, "messageEdit", embed);
 });
 
-// =========================
 // VOICE SYSTEM
-// =========================
-
 client.on("voiceStateUpdate", async (oldState, newState) => {
   const guild = newState.guild || oldState.guild;
   const member = newState.member || oldState.member;
@@ -331,7 +301,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         },
         {
           name: "Channel",
-          value: `${newState.channel.name}`,
+          value: newState.channel?.name || "Unknown",
         }
       )
       .setTimestamp();
@@ -340,7 +310,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     return;
   }
 
-  // LEAVE
+  // LEAVE / DISCONNECT
   if (oldState.channelId && !newState.channelId) {
     const embed = new EmbedBuilder()
       .setTitle("🎙️ Voice Leave")
@@ -351,19 +321,18 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         },
         {
           name: "Channel",
-          value: `${oldState.channel.name}`,
+          value: oldState.channel?.name || "Unknown",
         }
       )
       .setTimestamp();
 
     await sendLog(guild, "voiceMember", embed);
 
-    // Check audit log for disconnect
     setTimeout(async () => {
       try {
         const logs = await guild.fetchAuditLogs({
           type: AuditLogEvent.MemberDisconnect,
-          limit: 5,
+          limit: 10,
         });
 
         const entry = logs.entries.find(
@@ -385,7 +354,7 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
             },
             {
               name: "Channel",
-              value: `${oldState.channel.name}`,
+              value: oldState.channel?.name || "Unknown",
             },
             {
               name: "Disconnected By",
@@ -398,9 +367,9 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
 
         await sendLog(guild, "voiceDisconnect", disconnectEmbed);
       } catch (error) {
-        console.error("❌ Disconnect audit log error:", error);
+        console.error("❌ Disconnect log error:", error);
       }
-    }, 1000);
+    }, 1500);
 
     return;
   }
@@ -411,32 +380,11 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     newState.channelId &&
     oldState.channelId !== newState.channelId
   ) {
-    const embed = new EmbedBuilder()
-      .setTitle("↔️ Voice Move")
-      .addFields(
-        {
-          name: "User",
-          value: `${member.user.tag}\n${member.id}`,
-        },
-        {
-          name: "From",
-          value: `${oldState.channel.name}`,
-        },
-        {
-          name: "To",
-          value: `${newState.channel.name}`,
-        }
-      )
-      .setTimestamp();
-
-    await sendLog(guild, "voiceMove", embed);
-
-    // Find executor
     setTimeout(async () => {
       try {
         const logs = await guild.fetchAuditLogs({
           type: AuditLogEvent.MemberMove,
-          limit: 5,
+          limit: 10,
         });
 
         const entry = logs.entries.find(
@@ -445,12 +393,10 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
             Date.now() - entry.createdTimestamp < 5000
         );
 
-        if (!entry) return;
+        const executor = entry?.executor;
 
-        const executor = entry.executor;
-
-        const executorEmbed = new EmbedBuilder()
-          .setTitle("👮 Voice Move — Action")
+        const embed = new EmbedBuilder()
+          .setTitle("↔️ Voice Move")
           .addFields(
             {
               name: "User",
@@ -458,11 +404,11 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
             },
             {
               name: "From",
-              value: `${oldState.channel.name}`,
+              value: oldState.channel?.name || "Unknown",
             },
             {
               name: "To",
-              value: `${newState.channel.name}`,
+              value: newState.channel?.name || "Unknown",
             },
             {
               name: "Moved By",
@@ -473,25 +419,22 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
           )
           .setTimestamp();
 
-        await sendLog(guild, "voiceMove", executorEmbed);
+        await sendLog(guild, "voiceMove", embed);
       } catch (error) {
-        console.error("❌ Move audit log error:", error);
+        console.error("❌ Move log error:", error);
       }
-    }, 1000);
+    }, 1500);
   }
 });
 
-// =========================
-// ROLE CREATE / DELETE
-// =========================
-
+// ROLE CREATE
 client.on("roleCreate", async (role) => {
   const embed = new EmbedBuilder()
     .setTitle("🎭 Role Created")
     .addFields(
       {
         name: "Role",
-        value: `${role.name}`,
+        value: role.name,
       },
       {
         name: "ID",
@@ -503,13 +446,14 @@ client.on("roleCreate", async (role) => {
   await sendLog(role.guild, "role", embed);
 });
 
+// ROLE DELETE
 client.on("roleDelete", async (role) => {
   const embed = new EmbedBuilder()
     .setTitle("🎭 Role Deleted")
     .addFields(
       {
         name: "Role",
-        value: `${role.name}`,
+        value: role.name,
       },
       {
         name: "ID",
@@ -521,10 +465,7 @@ client.on("roleDelete", async (role) => {
   await sendLog(role.guild, "role", embed);
 });
 
-// =========================
 // CHANNEL CREATE
-// =========================
-
 client.on("channelCreate", async (channel) => {
   if (!channel.guild) return;
 
@@ -533,7 +474,7 @@ client.on("channelCreate", async (channel) => {
     .addFields(
       {
         name: "Channel",
-        value: `${channel.name}`,
+        value: channel.name,
       },
       {
         name: "ID",
@@ -545,10 +486,7 @@ client.on("channelCreate", async (channel) => {
   await sendLog(channel.guild, "channel", embed);
 });
 
-// =========================
 // CHANNEL DELETE
-// =========================
-
 client.on("channelDelete", async (channel) => {
   if (!channel.guild) return;
 
@@ -557,7 +495,7 @@ client.on("channelDelete", async (channel) => {
     .addFields(
       {
         name: "Channel",
-        value: `${channel.name}`,
+        value: channel.name,
       },
       {
         name: "ID",
@@ -565,13 +503,9 @@ client.on("channelDelete", async (channel) => {
       }
     )
     .setTimestamp();
-
+  
   await sendLog(channel.guild, "channel", embed);
 });
-
-// =========================
-// LOGIN
-// =========================
 
 if (!process.env.TOKEN) {
   console.error("❌ TOKEN is missing!");
