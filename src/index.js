@@ -37,6 +37,7 @@ const LOG_CHANNELS = [
 
 client.once("ready", async () => {
   console.log(`✅ ${client.user.tag} is online!`);
+  console.log("SERVERS:", client.guilds.cache.size);
 
   for (const guild of client.guilds.cache.values()) {
     console.log(`🔎 Setting up logs in: ${guild.name}`);
