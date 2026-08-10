@@ -3,9 +3,9 @@ require("dotenv").config();
 const {
   Client,
   GatewayIntentBits,
-  AuditLogEvent,
-  EmbedBuilder,
   ChannelType,
+  EmbedBuilder,
+  AuditLogEvent,
 } = require("discord.js");
 
 const client = new Client({
@@ -25,19 +25,24 @@ const LOG_CHANNELS = {
   memberJoin: "👤・member-join",
   memberLeave: "🚪・member-leave",
   memberUpdate: "📝・member-update",
+
   messageDelete: "💬・message-delete",
   messageEdit: "✏️・message-edit",
+
   moderation: "🛡️・moderation",
   ban: "🔨・ban-logs",
   kick: "👢・kick-logs",
   timeout: "⏱️・timeout-logs",
   warn: "⚠️・warn-logs",
-  voiceMember: "🎙️・voice-member",
+
+  voice: "🔊・voice-logs",
   voiceMove: "↔️・voice-move",
   voiceDisconnect: "❌・voice-disconnect",
+
   role: "🎭・role-logs",
   channel: "📁・channel-logs",
   category: "🗂️・category-logs",
+
   invite: "🔗・invite-logs",
   bot: "🤖・bot-logs",
   server: "⚙️・server-logs",
@@ -45,19 +50,24 @@ const LOG_CHANNELS = {
 
 client.once("ready", async () => {
   console.log(`✅ ${client.user.tag} is online!`);
-  console.log("🔥 STARTING LOG SETUP...");
+
+  console.log(`🏠 Servers found: ${client.guilds.cache.size}`);
 
   for (const guild of client.guilds.cache.values()) {
+    console.log(`🔎 Setting up logs in: ${guild.name} (${guild.id})`);
+
     try {
-      await createLogs(guild);
-      console.log(`📋 Logs ready in ${guild.name}`);
+      await setupLogs(guild);
+      console.log(`✅ LOGS FINISHED: ${guild.name}`);
     } catch (error) {
-      console.error("❌ LOG ERROR:", error);
+      console.error(`❌ LOG SETUP ERROR:`, error);
     }
   }
 });
 
-async function createLogs(guild) {
+async function setupLogs(guild) {
+  console.log(`📋 Checking LOG category in ${guild.name}...`);
+
   let category = guild.channels.cache.find(
     (channel) =>
       channel.type === ChannelType.GuildCategory &&
@@ -65,83 +75,169 @@ async function createLogs(guild) {
   );
 
   if (!category) {
+    console.log("📁 Creating LOG category...");
+
     category = await guild.channels.create({
       name: LOG_CATEGORY,
       type: ChannelType.GuildCategory,
     });
 
-    console.log("✅ LOG CATEGORY CREATED");
+    console.log(`✅ Category created: ${category.name}`);
+  } else {
+    console.log("✅ LOG category already exists");
   }
 
-  for (const name of Object.values(LOG_CHANNELS)) {
-    const exists = guild.channels.cache.find(
+  for (const [key, channelName] of Object.entries(LOG_CHANNELS)) {
+    const existing = guild.channels.cache.find(
       (channel) =>
         channel.type === ChannelType.GuildText &&
-        channel.name === name &&
+        channel.name === channelName &&
         channel.parentId === category.id
     );
 
-    if (exists) continue;
+    if (existing) {
+      console.log(`✔️ Already exists: ${channelName}`);
+      continue;
+    }
 
-    await guild.channels.create({
-      name,
-      type: ChannelType.GuildText,
-      parent: category.id,
-    });
+    try {
+      const channel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: category.id,
+      });
 
-    console.log(`✅ CREATED: ${name}`);
+      console.log(`✅ Created: ${channel.name}`);
+    } catch (error) {
+      console.error(`❌ Cannot create ${channelName}:`, error);
+    }
   }
 }
 
-function getLog(guild, type) {
-  const name = LOG_CHANNELS[type];
+function getLogChannel(guild, type) {
+  const channelName = LOG_CHANNELS[type];
 
   return guild.channels.cache.find(
     (channel) =>
       channel.type === ChannelType.GuildText &&
-      channel.name === name
+      channel.name === channelName
   );
 }
 
-async function log(guild, type, embed) {
-  const channel = getLog(guild, type);
+async function sendLog(guild, type, embed) {
+  const channel = getLogChannel(guild, type);
 
-  if (!channel) return;
+  if (!channel) {
+    console.log(`⚠️ Log channel not found: ${type}`);
+    return;
+  }
 
   try {
-    await channel.send({ embeds: [embed] });
+    await channel.send({
+      embeds: [embed],
+    });
   } catch (error) {
-    console.error("❌ SEND LOG ERROR:", error);
+    console.error(`❌ Could not send ${type} log:`, error);
   }
 }
 
+// ==========================
 // MEMBER JOIN
+// ==========================
+
 client.on("guildMemberAdd", async (member) => {
   const embed = new EmbedBuilder()
     .setTitle("👤 Member Joined")
     .addFields(
-      { name: "User", value: member.user.tag },
-      { name: "ID", value: member.id }
+      {
+        name: "User",
+        value: `${member.user.tag}`,
+      },
+      {
+        name: "ID",
+        value: member.id,
+      }
     )
     .setTimestamp();
 
-  await log(member.guild, "memberJoin", embed);
+  await sendLog(member.guild, "memberJoin", embed);
 });
 
+// ==========================
 // MEMBER LEAVE
+// ==========================
+
 client.on("guildMemberRemove", async (member) => {
   const embed = new EmbedBuilder()
     .setTitle("🚪 Member Left")
     .addFields(
-      { name: "User", value: member.user.tag },
-      { name: "ID", value: member.id }
+      {
+        name: "User",
+        value: `${member.user.tag}`,
+      },
+      {
+        name: "ID",
+        value: member.id,
+      }
     )
     .setTimestamp();
 
-  await log(member.guild, "memberLeave", embed);
+  await sendLog(member.guild, "memberLeave", embed);
 });
 
+// ==========================
+// MEMBER UPDATE
+// ==========================
+
+client.on("guildMemberUpdate", async (oldMember, newMember) => {
+  const changes = [];
+
+  if (oldMember.nickname !== newMember.nickname) {
+    changes.push(
+      `Nickname: ${oldMember.nickname || "None"} → ${
+        newMember.nickname || "None"
+      }`
+    );
+  }
+
+  const addedRoles = newMember.roles.cache.filter(
+    (role) => !oldMember.roles.cache.has(role.id)
+  );
+
+  const removedRoles = oldMember.roles.cache.filter(
+    (role) => !newMember.roles.cache.has(role.id)
+  );
+
+  if (addedRoles.size > 0) {
+    changes.push(
+      `Role Added: ${addedRoles.map((role) => role.name).join(", ")}`
+    );
+  }
+
+  if (removedRoles.size > 0) {
+    changes.push(
+      `Role Removed: ${removedRoles.map((role) => role.name).join(", ")}`
+    );
+  }
+
+  if (changes.length === 0) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("📝 Member Updated")
+    .setDescription(changes.join("\n"))
+    .addFields({
+      name: "User",
+      value: `${newMember.user.tag}\n${newMember.id}`,
+    })
+    .setTimestamp();
+
+  await sendLog(newMember.guild, "memberUpdate", embed);
+});
+
+// ==========================
 // MESSAGE DELETE
+// ==========================
+
 client.on("messageDelete", async (message) => {
   if (!message.guild || message.author?.bot) return;
 
@@ -150,7 +246,7 @@ client.on("messageDelete", async (message) => {
     .addFields(
       {
         name: "User",
-        value: message.author?.tag || "Unknown",
+        value: `${message.author?.tag || "Unknown"}`,
       },
       {
         name: "Channel",
@@ -158,15 +254,20 @@ client.on("messageDelete", async (message) => {
       },
       {
         name: "Content",
-        value: message.content?.slice(0, 1024) || "Unknown",
+        value: message.content
+          ? message.content.substring(0, 1024)
+          : "No content",
       }
     )
     .setTimestamp();
 
-  await log(message.guild, "messageDelete", embed);
+  await sendLog(message.guild, "messageDelete", embed);
 });
 
+// ==========================
 // MESSAGE EDIT
+// ==========================
+
 client.on("messageUpdate", async (oldMessage, newMessage) => {
   if (!oldMessage.guild) return;
   if (oldMessage.author?.bot) return;
@@ -177,7 +278,7 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
     .addFields(
       {
         name: "User",
-        value: oldMessage.author?.tag || "Unknown",
+        value: `${oldMessage.author?.tag || "Unknown"}`,
       },
       {
         name: "Channel",
@@ -185,19 +286,26 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
       },
       {
         name: "Before",
-        value: oldMessage.content?.slice(0, 1024) || "Empty",
+        value: oldMessage.content
+          ? oldMessage.content.substring(0, 1024)
+          : "Empty",
       },
       {
         name: "After",
-        value: newMessage.content?.slice(0, 1024) || "Empty",
+        value: newMessage.content
+          ? newMessage.content.substring(0, 1024)
+          : "Empty",
       }
     )
     .setTimestamp();
 
-  await log(oldMessage.guild, "messageEdit", embed);
+  await sendLog(oldMessage.guild, "messageEdit", embed);
 });
 
+// ==========================
 // VOICE
+// ==========================
+
 client.on("voiceStateUpdate", async (oldState, newState) => {
   const guild = newState.guild || oldState.guild;
   const member = newState.member || oldState.member;
@@ -209,7 +317,10 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
     const embed = new EmbedBuilder()
       .setTitle("🎙️ Voice Join")
       .addFields(
-        { name: "User", value: `${member.user.tag}\n${member.id}` },
+        {
+          name: "User",
+          value: `${member.user.tag}\n${member.id}`,
+        },
         {
           name: "Channel",
           value: newState.channel?.name || "Unknown",
@@ -217,16 +328,20 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       )
       .setTimestamp();
 
-    await log(guild, "voiceMember", embed);
+    await sendLog(guild, "voice", embed);
+
     return;
   }
 
-  // LEAVE / DISCONNECT
+  // LEAVE
   if (oldState.channelId && !newState.channelId) {
     const embed = new EmbedBuilder()
       .setTitle("🎙️ Voice Leave")
       .addFields(
-        { name: "User", value: `${member.user.tag}\n${member.id}` },
+        {
+          name: "User",
+          value: `${member.user.tag}\n${member.id}`,
+        },
         {
           name: "Channel",
           value: oldState.channel?.name || "Unknown",
@@ -234,8 +349,9 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
       )
       .setTimestamp();
 
-    await log(guild, "voiceMember", embed);
+    await sendLog(guild, "voice", embed);
 
+    // CHECK DISCONNECT
     setTimeout(async () => {
       try {
         const audit = await guild.fetchAuditLogs({
@@ -244,9 +360,9 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         });
 
         const entry = audit.entries.find(
-          (e) =>
-            e.target?.id === member.id &&
-            Date.now() - e.createdTimestamp < 5000
+          (entry) =>
+            entry.target?.id === member.id &&
+            Date.now() - entry.createdTimestamp < 5000
         );
 
         if (!entry) return;
@@ -271,9 +387,9 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
           )
           .setTimestamp();
 
-        await log(guild, "voiceDisconnect", embed);
+        await sendLog(guild, "voiceDisconnect", embed);
       } catch (error) {
-        console.error("❌ DISCONNECT ERROR:", error);
+        console.error("❌ Disconnect audit error:", error);
       }
     }, 1500);
 
@@ -294,9 +410,9 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
         });
 
         const entry = audit.entries.find(
-          (e) =>
-            e.target?.id === member.id &&
-            Date.now() - e.createdTimestamp < 5000
+          (entry) =>
+            entry.target?.id === member.id &&
+            Date.now() - entry.createdTimestamp < 5000
         );
 
         const embed = new EmbedBuilder()
@@ -323,69 +439,109 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
           )
           .setTimestamp();
 
-        await log(guild, "voiceMove", embed);
+        await sendLog(guild, "voiceMove", embed);
       } catch (error) {
-        console.error("❌ MOVE ERROR:", error);
+        console.error("❌ Move audit error:", error);
       }
     }, 1500);
   }
 });
 
+// ==========================
 // ROLE CREATE
+// ==========================
+
 client.on("roleCreate", async (role) => {
   const embed = new EmbedBuilder()
     .setTitle("🎭 Role Created")
     .addFields(
-      { name: "Role", value: role.name },
-      { name: "ID", value: role.id }
+      {
+        name: "Role",
+        value: role.name,
+      },
+      {
+        name: "ID",
+        value: role.id,
+      }
     )
     .setTimestamp();
 
-  await log(role.guild, "role", embed);
+  await sendLog(role.guild, "role", embed);
 });
 
+// ==========================
 // ROLE DELETE
+// ==========================
+
 client.on("roleDelete", async (role) => {
   const embed = new EmbedBuilder()
     .setTitle("🎭 Role Deleted")
     .addFields(
-      { name: "Role", value: role.name },
-      { name: "ID", value: role.id }
+      {
+        name: "Role",
+        value: role.name,
+      },
+      {
+        name: "ID",
+        value: role.id,
+      }
     )
     .setTimestamp();
 
-  await log(role.guild, "role", embed);
+  await sendLog(role.guild, "role", embed);
 });
 
+// ==========================
 // CHANNEL CREATE
+// ==========================
+
 client.on("channelCreate", async (channel) => {
   if (!channel.guild) return;
 
   const embed = new EmbedBuilder()
     .setTitle("📁 Channel Created")
     .addFields(
-      { name: "Channel", value: channel.name },
-      { name: "ID", value: channel.id }
+      {
+        name: "Channel",
+        value: channel.name,
+      },
+      {
+        name: "ID",
+        value: channel.id,
+      }
     )
     .setTimestamp();
 
-  await log(channel.guild, "channel", embed);
+  await sendLog(channel.guild, "channel", embed);
 });
 
+// ==========================
 // CHANNEL DELETE
+// ==========================
+
 client.on("channelDelete", async (channel) => {
   if (!channel.guild) return;
 
   const embed = new EmbedBuilder()
     .setTitle("📁 Channel Deleted")
     .addFields(
-      { name: "Channel", value: channel.name },
-      { name: "ID", value: channel.id }
+      {
+        name: "Channel",
+        value: channel.name,
+      },
+      {
+        name: "ID",
+        value: channel.id,
+      }
     )
     .setTimestamp();
 
-  await log(channel.guild, "channel", embed);
+  await sendLog(channel.guild, "channel", embed);
 });
+
+// ==========================
+// LOGIN
+// ==========================
 
 if (!process.env.TOKEN) {
   console.error("❌ TOKEN is missing!");
