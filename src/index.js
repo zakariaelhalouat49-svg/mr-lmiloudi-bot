@@ -10,6 +10,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
 } = require("discord.js");
 
 dotenv.config({
@@ -63,7 +64,6 @@ const LOG_CHANNELS = {
   bot: "bot-logs",
   server: "server-logs",
 };
-
 // =========================
 // READY
 // =========================
@@ -75,12 +75,17 @@ client.once("ready", async () => {
     try {
       await setupLogs(guild);
       console.log(`Logs ready in: ${guild.name}`);
+
+      await setupSelfRoles(guild);
+      console.log(`🎭 Self Roles ready in: ${guild.name}`);
     } catch (error) {
-      console.error(`Could not setup logs in ${guild.name}:`, error);
+      console.error(
+        `Could not setup systems in ${guild.name}:`,
+        error
+      );
     }
   }
 });
-
 // =========================
 // SETUP LOGS
 // =========================
@@ -176,7 +181,7 @@ client.on("guildMemberAdd", async (member) => {
     )
     .setTimestamp();
 
-  await sendLog(member.guild, "memberJoin", embed);
+  await sendLog(member.guild, "memberJoin", embed);;
 });
 
 // =========================
@@ -1872,11 +1877,569 @@ client.on("messageCreate", async (message) => {
     await message.reply(autoReplies[content]);
   }
 });
+// ==========================================
+// 🎭 NIGHT SHIFT - SELF ROLES SYSTEM
+// ==========================================
+
+const SELF_ROLE_CHANNEL_ID = "1535077473778143233";
+
+const SELF_ROLES = {
+  colors: [
+    { name: "🔴 Red", color: "#FF0000" },
+    { name: "🩷 Pink", color: "#FF69B4" },
+    { name: "🟠 Orange", color: "#FFA500" },
+    { name: "🔵 Blue", color: "#3498DB" },
+    { name: "🟢 Green", color: "#2ECC71" },
+    { name: "⚪ White", color: "#FFFFFF" },
+    { name: "⚫ Black", color: "#000000" },
+    { name: "🟣 Purple", color: "#9B59B6" },
+    { name: "🟡 Yellow", color: "#F1C40F" },
+    { name: "🩵 Cyan", color: "#00FFFF" }
+  ],
+
+  games: [
+    "⚽ eFootball",
+    "⚽ FIFA / EA FC",
+    "🎯 Valorant",
+    "🛸 Among Us",
+    "🔥 Free Fire",
+    "🪖 PUBG",
+    "🥊 Brawlhalla",
+    "🏎️ Rocket League",
+    "⛏️ Minecraft",
+    "🔫 Call of Duty",
+    "🏝️ Fortnite",
+    "🚗 GTA V"
+  ],
+
+  vibes: [
+    "🎧 Music",
+    "🎮 Gaming",
+    "⚽ Football",
+    "🎬 Movies & Series",
+    "🍿 Anime",
+    "💬 Chill & Chat",
+    "🌙 Night Owl",
+    "😂 Memes"
+  ]
+};
+
+
+// ==========================================
+// CREATE / FIND ROLE
+// ==========================================
+
+async function getOrCreateSelfRole(guild, name, color = "#2B2D31") {
+
+  let role = guild.roles.cache.find(
+    r => r.name === name
+  );
+
+  if (!role) {
+
+    role = await guild.roles.create({
+      name: name,
+      color: color,
+      reason: "Night Shift Self Roles"
+    });
+
+    console.log(`✅ Created Self Role: ${name}`);
+  }
+
+  return role;
+}
+
+
+// ==========================================
+// SETUP SELF ROLES
+// ==========================================
+
+async function setupSelfRoles(guild) {
+
+  console.log(`🎭 Setting up Self Roles in ${guild.name}...`);
+
+  // Find channel by ID
+  const channel = guild.channels.cache.get(
+    SELF_ROLE_CHANNEL_ID
+  );
+
+  if (!channel) {
+    console.error(
+      `❌ Self Roles channel not found: ${SELF_ROLE_CHANNEL_ID}`
+    );
+    return;
+  }
+
+  // Make sure it's a text channel
+  if (channel.type !== ChannelType.GuildText) {
+    console.error(
+      "❌ Self Roles channel is not a text channel."
+    );
+    return;
+  }
+
+  // ========================================
+  // CREATE COLORS
+  // ========================================
+
+  for (const roleData of SELF_ROLES.colors) {
+
+    await getOrCreateSelfRole(
+      guild,
+      roleData.name,
+      roleData.color
+    );
+
+  }
+
+  // ========================================
+  // CREATE GAME ROLES
+  // ========================================
+
+  for (const roleName of SELF_ROLES.games) {
+
+    await getOrCreateSelfRole(
+      guild,
+      roleName
+    );
+
+  }
+
+  // ========================================
+  // CREATE VIBE ROLES
+  // ========================================
+
+  for (const roleName of SELF_ROLES.vibes) {
+
+    await getOrCreateSelfRole(
+      guild,
+      roleName
+    );
+
+  }
+
+  // ========================================
+  // CHECK EXISTING SELF ROLE MESSAGE
+  // ========================================
+
+  const messages = await channel.messages.fetch({
+    limit: 30
+  });
+
+  const existingMessage = messages.find(
+    message =>
+      message.author.id === client.user.id &&
+      message.embeds.length > 0 &&
+      message.embeds[0].title === "🎭 GET YOUR ROLES"
+  );
+
+  if (existingMessage) {
+
+    console.log(
+      `🎭 Self Roles message already exists in ${guild.name}`
+    );
+
+    return;
+  }
+
+  // ========================================
+  // EMBED
+  // ========================================
+
+  const embed = new EmbedBuilder()
+
+    .setColor("#5865F2")
+
+    .setTitle("🎭 GET YOUR ROLES")
+
+    .setDescription(
+      "**Customize your Night Shift experience.**\n\n" +
+
+      "🎨 **FAVORITE COLOR**\n" +
+      "Choose the color you like.\n\n" +
+
+      "🎮 **FAVORITE GAME**\n" +
+      "Choose the games you play.\n\n" +
+
+      "🎵 **YOUR VIBE**\n" +
+      "Choose what you're into.\n\n" +
+
+      "━━━━━━━━━━━━━━━━━━━━\n\n" +
+
+      "💡 You can select multiple roles.\n" +
+      "🔄 Select a role again to remove it."
+    )
+
+    .setFooter({
+      text: "Night Shift • Self Roles"
+    })
+
+    .setTimestamp();
+
+  // ========================================
+  // COLOR MENU
+  // ========================================
+
+  const colorMenu = new StringSelectMenuBuilder()
+
+    .setCustomId("selfrole_colors")
+
+    .setPlaceholder("🎨 Choose your favorite color")
+
+    .setMinValues(0)
+
+    .setMaxValues(1);
+
+  for (const roleData of SELF_ROLES.colors) {
+
+    const role = guild.roles.cache.find(
+      r => r.name === roleData.name
+    );
+
+    if (!role) continue;
+
+    colorMenu.addOptions({
+      label: roleData.name.substring(2),
+      value: role.id,
+      emoji: roleData.name.substring(0, 2).trim()
+    });
+
+  }
+
+  // ========================================
+  // GAME MENU
+  // ========================================
+
+  const gameMenu = new StringSelectMenuBuilder()
+
+    .setCustomId("selfrole_games")
+
+    .setPlaceholder("🎮 Choose your favorite games")
+
+    .setMinValues(0)
+
+    .setMaxValues(
+      Math.min(SELF_ROLES.games.length, 25)
+    );
+
+  for (const roleName of SELF_ROLES.games) {
+
+    const role = guild.roles.cache.find(
+      r => r.name === roleName
+    );
+
+    if (!role) continue;
+
+    gameMenu.addOptions({
+      label: roleName.substring(2),
+      value: role.id,
+      emoji: roleName.substring(0, 2).trim()
+    });
+
+  }
+
+  // ========================================
+  // VIBE MENU
+  // ========================================
+
+  const vibeMenu = new StringSelectMenuBuilder()
+
+    .setCustomId("selfrole_vibes")
+
+    .setPlaceholder("🎵 Choose your vibe")
+
+    .setMinValues(0)
+
+    .setMaxValues(
+      Math.min(SELF_ROLES.vibes.length, 25)
+    );
+
+  for (const roleName of SELF_ROLES.vibes) {
+
+    const role = guild.roles.cache.find(
+      r => r.name === roleName
+    );
+
+    if (!role) continue;
+
+    vibeMenu.addOptions({
+      label: roleName.substring(2),
+      value: role.id,
+      emoji: roleName.substring(0, 2).trim()
+    });
+
+  }
+
+  // ========================================
+  // SEND SELF ROLES MESSAGE
+  // ========================================
+
+  await channel.send({
+
+    embeds: [embed],
+
+    components: [
+
+      new ActionRowBuilder()
+        .addComponents(colorMenu),
+
+      new ActionRowBuilder()
+        .addComponents(gameMenu),
+
+      new ActionRowBuilder()
+        .addComponents(vibeMenu)
+
+    ]
+
+  });
+
+  // ========================================
+  // SEND @EVERYONE NOTIFICATION
+  // ========================================
+
+  await channel.send({
+
+    content:
+      "@everyone\n\n" +
+      "🎭 **Come get your roles!**\n\n" +
+      "Choose your **favorite colors, games, and vibes** " +
+      "from the menu above and customize your Night Shift experience.",
+
+    allowedMentions: {
+      parse: ["everyone"]
+    }
+
+  });
+
+  console.log(
+    `✅ Self Roles message and notification sent in ${guild.name}`
+  );
+}
+
+
+// ==========================================
+// SELF ROLES INTERACTION
+// ==========================================
+
+client.on("interactionCreate", async interaction => {
+
+  if (!interaction.isStringSelectMenu()) return;
+
+  if (!interaction.customId.startsWith("selfrole_")) {
+    return;
+  }
+
+  if (!interaction.guild) return;
+
+  const member = interaction.member;
+
+  try {
+
+    await interaction.deferReply({
+      ephemeral: true
+    });
+
+
+    // ======================================
+    // COLORS
+    // ======================================
+
+    if (
+      interaction.customId === "selfrole_colors"
+    ) {
+
+      const selectedRoleId =
+        interaction.values[0];
+
+
+      // All color role IDs
+      const colorRoleIds =
+        SELF_ROLES.colors
+
+          .map(data =>
+            interaction.guild.roles.cache.find(
+              role => role.name === data.name
+            )
+          )
+
+          .filter(Boolean)
+
+          .map(role => role.id);
+
+
+      // Remove other colors
+      for (const roleId of colorRoleIds) {
+
+        if (
+          roleId !== selectedRoleId &&
+          member.roles.cache.has(roleId)
+        ) {
+
+          await member.roles.remove(roleId);
+
+        }
+
+      }
+
+
+      // No selection = remove colors
+      if (!selectedRoleId) {
+
+        await interaction.editReply(
+          "⚪ Your color role has been removed."
+        );
+
+        return;
+      }
+
+
+      // Toggle selected color
+      if (
+        member.roles.cache.has(selectedRoleId)
+      ) {
+
+        await member.roles.remove(
+          selectedRoleId
+        );
+
+        await interaction.editReply(
+          "🔄 Your color role has been removed."
+        );
+
+      } else {
+
+        await member.roles.add(
+          selectedRoleId
+        );
+
+        const role =
+          interaction.guild.roles.cache.get(
+            selectedRoleId
+          );
+
+        await interaction.editReply(
+          `🎨 Your color is now **${role.name}**.`
+        );
+
+      }
+
+      return;
+    }
+
+
+    // ======================================
+    // GAMES
+    // ======================================
+
+    if (
+      interaction.customId === "selfrole_games"
+    ) {
+
+      for (
+        const roleId of interaction.values
+      ) {
+
+        if (
+          member.roles.cache.has(roleId)
+        ) {
+
+          await member.roles.remove(
+            roleId
+          );
+
+        } else {
+
+          await member.roles.add(
+            roleId
+          );
+
+        }
+
+      }
+
+
+      await interaction.editReply(
+        "🎮 Your game roles have been updated!"
+      );
+
+      return;
+    }
+
+
+    // ======================================
+    // VIBES
+    // ======================================
+
+    if (
+      interaction.customId === "selfrole_vibes"
+    ) {
+
+      for (
+        const roleId of interaction.values
+      ) {
+
+        if (
+          member.roles.cache.has(roleId)
+        ) {
+
+          await member.roles.remove(
+            roleId
+          );
+
+        } else {
+
+          await member.roles.add(
+            roleId
+          );
+
+        }
+
+      }
+
+
+      await interaction.editReply(
+        "🎵 Your vibe roles have been updated!"
+      );
+
+      return;
+    }
+
+  } catch (error) {
+
+    console.error(
+      "❌ Self Roles Error:",
+      error
+    );
+
+    if (interaction.deferred) {
+
+      await interaction.editReply(
+        "❌ Something went wrong while updating your roles."
+      );
+
+    } else {
+
+      await interaction.reply({
+        content:
+          "❌ Something went wrong.",
+        ephemeral: true
+      });
+
+    }
+
+  }
+
+});
 
 // =========================
 // LOGIN
 // =========================
 
 client.login(process.env.TOKEN).catch((error) => {
-  console.error("LOGIN ERROR:", error.message);
+
+  console.error(
+    "LOGIN ERROR:",
+    error.message
+  );
+
 });
